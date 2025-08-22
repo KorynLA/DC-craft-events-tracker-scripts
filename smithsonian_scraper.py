@@ -141,8 +141,8 @@ def clean_event_description(description):
     return desc
 
 """
-Extracts event date from <category> or <description>.
-Returns a SQL-compatible DATE string: YYYY-MM-DD
+Extracts cost from <description>.
+Returns 0 if its a free event, or the cost as a string
 """
 def get_cost(description):
     pattern = r'<b>Cost</b>:&nbsp;([^<]+)'
@@ -220,8 +220,8 @@ def extract_price_link_from_description(description):
     return ""
 
 """
-Extracts event price link from <description>.
-Returns the URL as a string
+Scrapes event price from the link
+Returns the string price
 """
 def scrape_smithsonian_associates_price(url):
     if not url or 'smithsonianassociates.org/ticketing' not in url:
@@ -284,8 +284,8 @@ def scrape_smithsonian_associates_price(url):
     finally:
         time.sleep(1.5)
 """
-Extracts event price link from <description>.
-Returns the URL as a string
+Scrapes event price from the smithsonian webpage link
+Returns the string price
 """
 def scrape_website_for_price(url):
     if not url or 'eventbrite' in url.lower():
@@ -342,7 +342,7 @@ def scrape_website_for_price(url):
 
 """
 Extract only Venue and Event Location from the Smithsonian RSS description HTML.
-Returns a combined string like "Anacostia Community Museum, 1901 Fort Place SE"
+Returns a combined string tuple
 """
 def extract_venue_and_location_from_rss(description):
     if not description:
@@ -380,8 +380,8 @@ def extract_venue_and_location_from_rss(description):
         log.warning(f"Error extracting venue/location: {e}")
         return ""
 """
-Extracts event price link from <description>.
-Returns the URL as a string
+Determines if an event is virtual
+Returns a boolean
 """
 def is_virtual(text, title=""):
     if not text:
@@ -394,6 +394,10 @@ def is_virtual(text, title=""):
             return True
     return False
 
+"""
+Determines if an event is kid friendly
+Returns a boolean
+"""
 def is_kid_friendly_event(description):
     categories_match = re.search(r'<b>Categories</b>:&nbsp;([^<]+)', description)
     categories = categories_match.group(1) if categories_match else ""
@@ -423,8 +427,8 @@ def is_kid_friendly_event(description):
     return False
 
 """
-Extracts event price link from <description>.
-Returns the URL as a string
+Extracts and builds the workshop data dictionary for all items found in the RSS feed
+Returns list of workshop dictionaries
 """
 def scrape_smithsonian_rss():
     rss_url = "https://www.trumba.com/calendars/smithsonian-events.rss?filter1=_16658_&filterfield1=11153"
@@ -559,8 +563,8 @@ def scrape_smithsonian_rss():
     return workshops
 
 """
-Extracts event date from <category> or <description>.
-Returns a SQL-compatible DATE string: YYYY-MM-DD
+Saves the workshop data into a JSON file
+Returns boolean if successful
 """
 def save_to_json(workshops, filename="smithsonian_workshops.json"):
     """Save workshops data to JSON file"""
