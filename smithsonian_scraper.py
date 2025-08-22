@@ -13,6 +13,7 @@ import traceback
 
 logging.basicConfig(level=logging.NOTSET)
 logging.getLogger('chardet.charsetprober').setLevel(logging.INFO)
+logging.getLogger("bs4.dammit").setLevel(logging.ERROR)
 log = logging.getLogger("smithsonian_sraper")
 
 smithsonian_locations = [
@@ -36,21 +37,21 @@ smithsonian_locations = [
     's dillon ripley center'
 ]
 
-# Kid-friendly indicators
 kid_friendly_keywords = [
     'kids', 'children', 'child', 'family', 'families', 'toddler', 'preschool',
     'elementary', 'youth', 'teen', 'teenager', 'ages', 'grade', 'young',
-    'workshop for kids', 'family program', 'baby', 'babies',
-    'story', 'puppet', 'discovery', 'exploration', 'junior', 'mini'
+    'workshop for kids', 'family program', 'baby', 'babies','junior',
+    'art activities', 'all ages', 'early learners', 'storybook'
 ]
 
-# Adult-only indicators
-adult_keywords = [
-    'adult only', 'adults only', '18+', '21+', 'mature', 'senior', 'seniors',
-    'professional development', 'business', 'career', 'academic', 'scholarly',
-    'research', 'graduate', 'university level', 'advanced study',
-    'wine', 'alcohol', 'cocktail', 'beer', 'happy hour', 'evening reception'
+age_patterns = [
+    r'\b(?:ages?|age)\s*(\d+)(?:\s*[-–]\s*(\d+))?\b',
+    r'\b(\d+)\s*(?:months?|years?|yrs?)\s*[-–]\s*(\d+)\s*(?:months?|years?|yrs?)\b',
+    r'\b(\d+)\+\b',
+    r'\bunder\s*(\d+)\b',
+    r'\bgrades?\s*([K\d]+)(?:\s*[-–]\s*(\d+))?\b'
 ]
+
 gen_admission_patterns = [
     r'\$(\d+(?:\.\d{2})?)\s*(?:\n|\s)+gen\.?\s*admission',
     r'\$(\d+(?:\.\d{2})?)\s*(?:\n|\s)+general\s*admission',
@@ -58,16 +59,6 @@ gen_admission_patterns = [
     r'general\s*admission\s*(?:\n|\s)*\$(\d+(?:\.\d{2})?)',
     r'gen\.?\s*admission[:\s]*\$(\d+(?:\.\d{2})?)',
     r'general\s*admission[:\s]*\$(\d+(?:\.\d{2})?)',
-]
-
-location_patterns = [
-    r'\b(washington\s*dc|washington|dc)\b',
-    r'\b(\d+\s+\w+\s+(?:street|st|avenue|ave|road|rd|drive|dr|place|pl|way|blvd|boulevard))\b',
-    r'location:?\s*([^\n,.]+)',
-    r'address:?\s*([^\n,.]+)',
-    r'at\s+the\s+([^\n,.]+(?:museum|gallery|center|building))',
-    r'held\s+at\s+([^\n,.]+)',
-    r'venue:?\s*([^\n,.]+)'
 ]
 
 # Check for virtual event indicators first
@@ -140,14 +131,13 @@ Cleans up an event description pulled from the Smithsonian Events RSS feed.
 """
 def clean_event_description(description):
     parts = re.split(r"<br/><br/>", description)
-
     if len(parts) >= 2:
         desc = parts[1]
     else:
         desc = parts[0]
 
     soup = BeautifulSoup(desc, "html.parser")
-    desc = soup.get_text(" ", strip=True)
+    desc = soup.get_text(" ", strip=True).replace('\xa0', ' ')
     return desc
 
 """
@@ -161,8 +151,9 @@ def get_cost(description):
         cost_split = re.split(r'[|;,./]', match[0])
         if len(cost_split)> 2:
             cost = cost_split[2]
-            return cost
-
+            return cost.replace('$', '')
+    if description.find("Free") != -1 or description.find("free") != -1:
+        return 0
     return None
 
 
@@ -220,12 +211,12 @@ def extract_price_link_from_description(description):
     price_link_pattern = r'<a\s+href="(https://smithsonianassociates\.org/ticketing/tickets/[^"]+)"[^>]*>Click here to view prices</a>'
     match = re.search(price_link_pattern, description, re.I)
     if match:
-        return match.group(1)
+        return match.group(1).replace('$', '')
     
     fallback_pattern = r'href="(https://smithsonianassociates\.org/ticketing/[^"]+)"'
     match = re.search(fallback_pattern, description, re.I)
     if match:
-        return match.group(1)
+        return match.group(1).replace('$', '')
     return ""
 
 """
@@ -257,31 +248,7 @@ def scrape_smithsonian_associates_price(url):
             if match:
                 price = f"${match.group(1)}"
                 log.info(f"Found General Admission price: {price}")
-                return price
-        
-        # Fallback patterns if Gen. Admission not found explicitly
-        price_patterns = [
-            # Free event indicators (check first)
-            (r'\b(free|no\s*charge|complimentary)\b', 'Free'),
-            
-            # Non-member pricing (preferred over member pricing)
-            (r'non[\-\s]*member[s]?[:\s]*\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            
-            # Registration patterns
-            (r'registration[\s\-]*gen\.?\s*admission[:\s]*\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            
-            # Look for price in table or list context with "admission"
-            (r'admission.*?\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            (r'\$(\d+(?:\.\d{2})?).*?admission', lambda m: f"${m.group(1)}"),
-            
-            # General price patterns for ticketing pages
-            (r'price[:\s]*\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            (r'cost[:\s]*\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            (r'fee[:\s]*\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            
-            # Member pricing (lower priority - only if nothing else found)
-            (r'member[s]?[:\s]*\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-        ]
+                return price.replace('$', '')
         
         for pattern, result in price_patterns:
             match = re.search(pattern, page_text, re.I)
@@ -290,9 +257,8 @@ def scrape_smithsonian_associates_price(url):
                     price = result(match)
                 else:
                     price = result
-                
                 log.info(f"Found Smithsonian Associates price: {price}")
-                return price
+                return price.replace('$', '')
         
         # Fallback: look for any dollar amounts on the page
         dollar_matches = re.findall(r'\$(\d+(?:\.\d{2})?)', page_text)
@@ -304,7 +270,7 @@ def scrape_smithsonian_associates_price(url):
                 price_val = reasonable_prices[0]
                 price = f"${price_val:.0f}" if price_val == int(price_val) else f"${price_val}"
                 log.info(f'Found potential Smithsonian Associates price:{price}')
-                return price
+                return price.replace('$', '')
         
         log.info(f"No price found on Smithsonian Associates page")
         return ""
@@ -326,7 +292,7 @@ def scrape_website_for_price(url):
         return ""
     
     try:
-        log.info(f'Checking website for price: url[:60]...')
+        log.info('Checking website for price: {}...'.format(url[:60]))
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -339,63 +305,10 @@ def scrape_website_for_price(url):
         response.raise_for_status()
         
         soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # Get all text content
+
         page_text = soup.get_text(separator=' ', strip=True)
         page_text_lower = page_text.lower()
-        
-        # Also check for structured data or specific HTML elements
-        price_selectors = [
-            '.price', '.cost', '.admission', '.fee', '.ticket-price',
-            '[class*="price"]', '[class*="cost"]', '[class*="admission"]',
-            '[data-price]', '[data-cost]'
-        ]
-        
-        # Check for General Admission pricing first
-        for pattern in gen_admission_patterns:
-            match = re.search(pattern, page_text_lower, re.I)
-            if match:
-                price = f"${match.group(1)}"
-                log.info(f'   Found General Admission price: {price}')
-                return price
-        
-        price_patterns = [
-            # Free indicators (most specific first)
-            (r'\b(free admission|free entry|no admission fee|admission is free|entry is free|free of charge)\b', 'Free'),
-            (r'\b(free\s+event|this\s+event\s+is\s+free|no\s+charge)\b', 'Free'),
-            (r'\b(complimentary|free)\b(?![a-z])', 'Free'),
-            
-            # Non-member pricing (preferred over member pricing)
-            (r'non[\-\s]*member[s]?[:\s]*\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            
-            # Museum admission patterns
-            (r'museum\s+admission[:\s]*\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            (r'adults?[:\s]*\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            
-            # Standard price patterns
-            (r'admission[:\s]*\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            (r'cost[:\s]*\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            (r'price[:\s]*\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            (r'fee[:\s]*\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            (r'ticket[s]?[:\s]*\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            
-            # Price with context
-            (r'(?:admission|cost|price|fee|ticket).*?\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            (r'\$(\d+(?:\.\d{2})?).*?(?:admission|cost|price|fee|ticket)', lambda m: f"${m.group(1)}"),
-            
-            # Museum admission patterns
-            (r'included\s+with\s+museum\s+admission', 'Included with museum admission'),
-            (r'included\s+with\s+admission', 'Included with museum admission'),
-            (r'with\s+paid\s+museum\s+admission', 'Included with museum admission'),
-            (r'no\s+additional\s+cost', 'Included with museum admission'),
-            
-            # Member pricing (lowest priority)
-            (r'member[s]?[:\s]*\$(\d+(?:\.\d{2})?)', lambda m: f"${m.group(1)}"),
-            
-            # Broader dollar amount patterns
-            (r'\$(\d+(?:\.\d{2})?)\s*(?:per\s+person|each|adult)', lambda m: f"${m.group(1)}"),
-        ]
-        
+
         for pattern, result in price_patterns:
             match = re.search(pattern, page_text_lower, re.I)
             if match:
@@ -404,21 +317,19 @@ def scrape_website_for_price(url):
                 else:
                     price = result
                 
-                print(f"   Found price: {price}")
-                return price
+                log.info(f"Found price: {price}")
+                return price.replace('$', '')
         
-        # Look for standalone dollar amounts as fallback
         dollar_matches = re.findall(r'\$(\d+(?:\.\d{2})?)', page_text)
         if dollar_matches:
-            # Get the most common price or the first reasonable one
             reasonable_prices = [float(p) for p in dollar_matches if 5 <= float(p) <= 100]
             if reasonable_prices:
                 price = f"${reasonable_prices[0]:.0f}" if reasonable_prices[0] == int(reasonable_prices[0]) else f"${reasonable_prices[0]}"
-                log.info(f"Found potential price: ", price)
-                return price
+                log.info(f"Found potential price: {price}")
+                return price.replace('$', '')
         
         log.info(f"No price found on website")
-        return ""
+        return None
         
     except requests.exceptions.RequestException as e:
         log.warning(f"Error fetching website: {e}")
@@ -442,24 +353,28 @@ def extract_venue_and_location_from_rss(description):
         text = soup.get_text(" ", strip=True)
 
         sponsor_match = re.search(r"Sponsor\s*:\s*([^\n\r]+?)(?=\s*(Event Location|Cost|Categories|$))", text, re.I)
-        sponsor = sponsor_match.group(1).strip() if sponsor_match else ""
-        # Strict regex: stop at "Cost", "Categories", or end of line
+        sponsor = sponsor_match.group(1).replace('\xa0', ' ').strip() if sponsor_match else ""
         venue_match = re.search(r"Venue\s*:\s*([^\n\r]+?)(?=\s*(Event Location|Cost|Categories|$))", text, re.I)
         loc_match = re.search(r"Event Location\s*:\s*([^\n\r]+?)(?=\s*(Venue|Cost|Categories|$))", text, re.I)
 
-        venue = venue_match.group(1).strip() if venue_match else ""
-        event_location = loc_match.group(1).strip() if loc_match else ""
+        venue = venue_match.group(1).replace('\xa0', ' ').strip() if venue_match else ""
+        event_location = loc_match.group(1).replace('\xa0', ' ').strip() if loc_match else ""
+        
+        if sponsor != "" and sponsor == "Ana":
+            sponsor = "Anacostia Community Museum"
+        if venue != "" and venue == "Ana":
+            venue = "Anacostia Community Museum"
 
         if sponsor and "Smithsonian Associates" not in sponsor:
-            return sponsor 
+            return (sponsor, event_location) 
         elif venue and event_location:
-            return f"{venue}, {event_location}"
+            return (venue, event_location)
         elif venue:
-            return venue
+            return (venue, event_location)
         elif event_location:
-            return event_location
+            return (venue, event_location)
         else:
-            return ""
+            return (None, None)
 
     except Exception as e:
         log.warning(f"Error extracting venue/location: {e}")
@@ -469,7 +384,6 @@ Extracts event price link from <description>.
 Returns the URL as a string
 """
 def is_virtual(text, title=""):
-    """Extract location information from Smithsonian event text"""
     if not text:
         return ""
     
@@ -477,71 +391,42 @@ def is_virtual(text, title=""):
     
     for indicator in virtual_indicators:
         if indicator in combined_text:
-            return "Virtual"
-    
-    # Check for specific Smithsonian locations
-    for location in smithsonian_locations:
-        if location in combined_text:
-            return location.title()
-    
-    for pattern in location_patterns:
-        match = re.search(pattern, combined_text, re.I)
-        if match:
-            location = match.group(1).strip()
-            location = re.sub(r'\s+', ' ', location)
-            return location
-    
-    return ""
-"""
-Extracts event price link from <description>.
-Returns the URL as a string
-"""
-def is_kid_friendly(text, title):
-    """Determine if event is kid-friendly based on content"""
-    if not text and not title:
-        return ""
-    
-    combined_text = f"{title} {text}".lower()
-    
-    # Age-specific patterns
-    age_patterns = [
-        r'age[s]?\s*(\d+)[-\s]*(\d+)?',
-        r'(\d+)[-\s]*(\d+)?\s*years?\s*old',
-        r'for\s*(\d+)[-\s]*(\d+)?\s*year\s*olds'
-    ]
-    
-    for pattern in age_patterns:
-        match = re.search(pattern, combined_text)
-        if match:
-            min_age = int(match.group(1))
-            max_age = int(match.group(2)) if match.group(2) else None
-            
-            if min_age <= 12:
-                return "Yes"
-            elif min_age >= 18:
-                return "No"
-            elif max_age and max_age <= 17:
-                return "Yes"
-    
-    # Check for explicit family/children mentions
-    if any(keyword in combined_text for keyword in kid_friendly_keywords):
-        return "Yes"
-    elif any(keyword in combined_text for keyword in adult_keywords):
-        return "No"
-    
-    # Smithsonian-specific: many programs are family-friendly unless specified otherwise
-    if any(term in combined_text for term in ['workshop', 'program', 'demonstration', 'tour']):
-        # If no explicit age restrictions and it's educational, likely family-friendly
-        if not any(keyword in combined_text for keyword in adult_keywords):
-            return "Yes"
+            return True
+    return False
 
-    return ""
+def is_kid_friendly_event(description):
+    categories_match = re.search(r'<b>Categories</b>:&nbsp;([^<]+)', description)
+    categories = categories_match.group(1) if categories_match else ""
+    
+    audience_match = re.search(r'Recommended Audience:(?:&nbsp;|\s)*([^<\n]+)', description)
+    recommended_audience = audience_match.group(1) if audience_match else ""
+
+    all_text = f"{description} {categories} {recommended_audience}".lower()
+
+    if any(keyword in categories.lower() for keyword in kid_friendly_keywords):
+        return True
+    
+    if recommended_audience:
+        for pattern in age_patterns:
+            matches = re.findall(pattern, recommended_audience.lower())
+            if matches:
+                for match in matches:
+                    if isinstance(match, tuple):
+                        ages = [int(x) for x in match if x.isdigit()]
+                        if ages and any(age <= 17 for age in ages):
+                            return True
+    
+    matched_keywords = [keyword for keyword in kid_friendly_keywords if keyword in all_text]
+    if matched_keywords:
+        return True
+    
+    return False
+
 """
 Extracts event price link from <description>.
 Returns the URL as a string
 """
 def scrape_smithsonian_rss():
-    """Scrape the Smithsonian RSS feed for future events"""
     rss_url = "https://www.trumba.com/calendars/smithsonian-events.rss?filter1=_16658_&filterfield1=11153"
     scraped_at = datetime.now().isoformat()
     workshops = []
@@ -589,9 +474,18 @@ def scrape_smithsonian_rss():
                 else:
                     log.warning(f"Error parsing item in feed, skipping")
                     continue
+                #TODO: Update to include cancelled events in seperate JSON
+                if title.find("CANCELLED") != -1:
+                    log.info(f"Event cancelled, skipping")
+                    continue
                 
                 log.info("Title: {}".format(title[:60]))
+
                 original_description = description
+                if description:
+                    desc_soup = BeautifulSoup(description, 'html.parser')
+                    description = desc_soup.get_text(separator=' ', strip=True)
+
                 event_date = extract_event_date(category, original_description)
                 if event_date:
                     if event_date < datetime.today():
@@ -600,61 +494,48 @@ def scrape_smithsonian_rss():
                 else:
                     print(f"Could not parse date, including anyway")
 
-                test_time = extract_event_times(original_description)
-                found_price  = get_cost(original_description)
-
-                if description:
-                    desc_soup = BeautifulSoup(description, 'html.parser')
-                    description = desc_soup.get_text(separator=' ', strip=True)
-
-                location = extract_venue_and_location_from_rss(description)
-
+                time = extract_event_times(original_description)
+                found_price  = get_cost(description)
+                kid_friendly = is_kid_friendly_event(original_description)
                 cleaned_description = clean_event_description(original_description)
-                full_text = f"{title} {cleaned_description}"
+                event_url = link.strip() if link else rss_url
+
+                virtual = is_virtual(original_description)
+                if not virtual:
+                    location = extract_venue_and_location_from_rss(description)
+                else:
+                    location = ("Virtual", "Virutal")
                 
                 price = None
                 if found_price is not None:
                     price = found_price
                 
-                if not price:
-                    # First, try to extract Smithsonian Associates pricing link from RSS description
+                if price is None:
                     pricing_link = extract_price_link_from_description(original_description)
-                    # If we found a pricing link, scrape it for actual price
                     if pricing_link:
                         log.info(f"Found Smithsonian Associates pricing link")
                         scraped_price = scrape_smithsonian_associates_price(pricing_link)
                         if scraped_price:
                             price = scraped_price
-                        elif not price:
-                            price = "Check website"
-                    # If price is still empty or says "check website", try scraping the main event website
                     elif not price or "check website" in price.lower():
+                        log.warning(f"No pricing link found!")
                         event_url = link.strip() if link else ""
                         if event_url and 'eventbrite' not in event_url.lower():
-                            log.info("Attempting to scrape price from: {}".format(event_url[:50]))
+                            log.info("Attempting to scrape price from: {}".format(event_url))
                             scraped_price = scrape_website_for_price(event_url)
                             if scraped_price:
                                 price = scraped_price
-                            elif not price:
-                                price = "Check website"
-                        elif not price:
-                            price = "Check website"
                 
-                kid_friendly = is_kid_friendly(full_text, title)
-                
-                # Use link from RSS or default to RSS URL
-                event_url = link.strip() if link else rss_url
-                
-                # Create workshop data
                 workshop_data = {
-                    'url': event_url,
+                    'url': event_url.strip(),
                     'scraped_at': scraped_at,
                     'title': title.strip(),
                     'description': cleaned_description.strip() if cleaned_description else title.strip(),
                     'date': event_date.strftime("%Y-%m-%d"),
-                    'time': test_time,
-                    'price': price,
-                    'location': location,
+                    'time': time,
+                    'price': float(price) if price is not None else None,
+                    'location': location[1].strip(),
+                    'venue': location[0].strip(),
                     'kidfriendly': kid_friendly,
                     'submittedBy': "scraper_smithsonian",
                     "business": "Smithsonian"
@@ -677,6 +558,10 @@ def scrape_smithsonian_rss():
     
     return workshops
 
+"""
+Extracts event date from <category> or <description>.
+Returns a SQL-compatible DATE string: YYYY-MM-DD
+"""
 def save_to_json(workshops, filename="smithsonian_workshops.json"):
     """Save workshops data to JSON file"""
     try:
