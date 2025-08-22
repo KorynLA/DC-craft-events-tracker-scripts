@@ -7,6 +7,7 @@ from dateutil import parser as date_parser
 import time
 from urllib.parse import urljoin, urlparse
 from datetime import datetime
+import logging
 
 smithsonian_locations = [
     'national air and space museum',
@@ -198,7 +199,7 @@ def scrape_smithsonian_associates_price(url):
             match = re.search(pattern, page_text, re.I)
             if match:
                 price = f"${match.group(1)}"
-                print(f"    💰 Found General Admission price: {price}")
+                print(f"   Found General Admission price: {price}")
                 return price
         
         # Fallback patterns if Gen. Admission not found explicitly
@@ -233,7 +234,7 @@ def scrape_smithsonian_associates_price(url):
                 else:
                     price = result
                 
-                print(f"    💰 Found Smithsonian Associates price: {price}")
+                print(f"Found Smithsonian Associates price: {price}")
                 return price
         
         # Fallback: look for any dollar amounts on the page
@@ -245,17 +246,17 @@ def scrape_smithsonian_associates_price(url):
                 # Take the first reasonable price found
                 price_val = reasonable_prices[0]
                 price = f"${price_val:.0f}" if price_val == int(price_val) else f"${price_val}"
-                print(f"    💰 Found potential Smithsonian Associates price: {price}")
+                print(f"   Found potential Smithsonian Associates price: {price}")
                 return price
         
-        print(f"    ❌ No price found on Smithsonian Associates page")
+        print(f"No price found on Smithsonian Associates page")
         return ""
         
     except requests.exceptions.RequestException as e:
-        print(f"    ❌ Error fetching Smithsonian Associates page: {e}")
+        print(f"Error fetching Smithsonian Associates page: {e}")
         return ""
     except Exception as e:
-        print(f"    ❌ Error parsing Smithsonian Associates page: {e}")
+        print(f"Error parsing Smithsonian Associates page: {e}")
         return ""
     finally:
         time.sleep(1.5)
@@ -308,10 +309,10 @@ def scrape_website_for_price(url):
                     dollar_match = re.search(r'\$(\d+(?:\.\d{2})?)', element_text)
                     if dollar_match:
                         price = f"${dollar_match.group(1)}"
-                        print(f"    💰 Found price in HTML element: {price}")
+                        print(f"   Found price in HTML element: {price}")
                         return price
                     elif 'free' in element_text.lower():
-                        print(f"    💰 Found free event in HTML element")
+                        print(f"   Found free event in HTML element")
                         return "Free"
         
         # Enhanced price detection patterns - prioritize General Admission
@@ -333,7 +334,7 @@ def scrape_website_for_price(url):
             match = re.search(pattern, page_text_lower, re.I)
             if match:
                 price = f"${match.group(1)}"
-                print(f"    💰 Found General Admission price: {price}")
+                print(f"   Found General Admission price: {price}")
                 return price
         
         price_patterns = [
@@ -381,7 +382,7 @@ def scrape_website_for_price(url):
                 else:
                     price = result
                 
-                print(f"    💰 Found price: {price}")
+                print(f"   Found price: {price}")
                 return price
         
         # Look for standalone dollar amounts as fallback
@@ -391,17 +392,17 @@ def scrape_website_for_price(url):
             reasonable_prices = [float(p) for p in dollar_matches if 5 <= float(p) <= 100]
             if reasonable_prices:
                 price = f"${reasonable_prices[0]:.0f}" if reasonable_prices[0] == int(reasonable_prices[0]) else f"${reasonable_prices[0]}"
-                print(f"    💰 Found potential price: {price}")
+                print(f"   Found potential price: {price}")
                 return price
         
-        print(f"    ❌ No price found on website")
+        print(f"   No price found on website")
         return ""
         
     except requests.exceptions.RequestException as e:
-        print(f"    ❌ Error fetching website: {e}")
+        print(f"  Error fetching website: {e}")
         return ""
     except Exception as e:
-        print(f"    ❌ Error parsing website: {e}")
+        print(f"  Error parsing website: {e}")
         return ""
     finally:
         # Add small delay to be respectful
@@ -640,7 +641,7 @@ def scrape_smithsonian_rss():
                     pricing_link = extract_price_link_from_description(original_description)
                     # If we found a pricing link, scrape it for actual price
                     if pricing_link:
-                        print(f"  🎫 Found Smithsonian Associates pricing link")
+                        print(f"  Found Smithsonian Associates pricing link")
                         scraped_price = scrape_smithsonian_associates_price(pricing_link)
                         if scraped_price:
                             price = scraped_price
@@ -650,7 +651,7 @@ def scrape_smithsonian_rss():
                     elif not price or "check website" in price.lower():
                         event_url = link.strip() if link else ""
                         if event_url and 'eventbrite' not in event_url.lower():
-                            print(f"  🌐 Attempting to scrape price from: {event_url[:50]}...")
+                            print(f"  Attempting to scrape price from: {event_url[:50]}...")
                             scraped_price = scrape_website_for_price(event_url)
                             if scraped_price:
                                 price = scraped_price
