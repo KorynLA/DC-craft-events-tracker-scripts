@@ -9,6 +9,7 @@ from urllib.parse import urljoin, urlparse
 from datetime import datetime
 import logging
 import json
+import traceback
 
 logging.basicConfig(level=logging.NOTSET)
 logging.getLogger('chardet.charsetprober').setLevel(logging.INFO)
@@ -51,13 +52,10 @@ adult_keywords = [
     'wine', 'alcohol', 'cocktail', 'beer', 'happy hour', 'evening reception'
 ]
 gen_admission_patterns = [
-    # Price followed by "Gen. Admission" or "General Admission"
     r'\$(\d+(?:\.\d{2})?)\s*(?:\n|\s)+gen\.?\s*admission',
     r'\$(\d+(?:\.\d{2})?)\s*(?:\n|\s)+general\s*admission',
-    # "Gen. Admission" followed by price
     r'gen\.?\s*admission\s*(?:\n|\s)*\$(\d+(?:\.\d{2})?)',
     r'general\s*admission\s*(?:\n|\s)*\$(\d+(?:\.\d{2})?)',
-    # With separators
     r'gen\.?\s*admission[:\s]*\$(\d+(?:\.\d{2})?)',
     r'general\s*admission[:\s]*\$(\d+(?:\.\d{2})?)',
 ]
@@ -327,9 +325,6 @@ def scrape_website_for_price(url):
     if not url or 'eventbrite' in url.lower():
         return ""
     
-    if 'smithsonianassociates.org/ticketing' in url:
-        return scrape_smithsonian_associates_price(url)
-    
     try:
         log.info(f'Checking website for price: url[:60]...')
         
@@ -592,11 +587,8 @@ def scrape_smithsonian_rss():
                     pub_date = item.find('pubDate').get_text() if item.find('pubDate') else ""
                     category = item.find('category').get_text() if item.find('category') else ""
                 else:
-                    title = item.find('title').text if item.find('title') is not None else ""
-                    description = item.find('description').text if item.find('description') is not None else ""
-                    link = item.find('link').text if item.find('link') is not None else ""
-                    pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ""
-                    category = item.find('category').text if item.find('category') is not None else ""
+                    log.warning(f"Error parsing item in feed, skipping")
+                    continue
                 
                 log.info("Title: {}".format(title[:60]))
                 original_description = description
@@ -611,20 +603,19 @@ def scrape_smithsonian_rss():
                 test_time = extract_event_times(original_description)
                 found_price  = get_cost(original_description)
 
-                cleaned_description = clean_event_description(original_description)
-
                 if description:
                     desc_soup = BeautifulSoup(description, 'html.parser')
                     description = desc_soup.get_text(separator=' ', strip=True)
 
                 location = extract_venue_and_location_from_rss(description)
-                
-                
-                # Combine title and cleaned description for analysis
+
+                cleaned_description = clean_event_description(original_description)
                 full_text = f"{title} {cleaned_description}"
+                
                 price = None
                 if found_price is not None:
                     price = found_price
+                
                 if not price:
                     # First, try to extract Smithsonian Associates pricing link from RSS description
                     pricing_link = extract_price_link_from_description(original_description)
@@ -669,14 +660,11 @@ def scrape_smithsonian_rss():
                     "business": "Smithsonian"
                 }
                 
-                if title and len(title.strip()) > 5:
-                    workshops.append(workshop_data)
-                    log.info("Added workshop: {}".format(title[:50]))
-                else:
-                    log.info(f"Skipped item with insufficient data")
+                workshops.append(workshop_data)
+                log.info("Added workshop: {}".format(title[:50]))
                 
             except Exception as e:
-                print(f"Error processing item {i}: {e}")
+                log.warning(f"Error processing item {i}: {e}")
                 continue
         
         log.info("Extracted {} future workshops from Smithsonian RSS".format(len(workshops)))
@@ -685,7 +673,6 @@ def scrape_smithsonian_rss():
         log.warning(f"Error fetching RSS feed: {e}")
     except Exception as e:
         log.warning(f"Error parsing RSS feed: {e}")
-        import traceback
         traceback.print_exc()
     
     return workshops
@@ -702,7 +689,6 @@ def save_to_json(workshops, filename="smithsonian_workshops.json"):
         return False
 
 def main():
-    
     workshops = scrape_smithsonian_rss()
     
     if workshops:
