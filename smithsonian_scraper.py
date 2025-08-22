@@ -8,7 +8,6 @@ import time
 from urllib.parse import urljoin, urlparse
 from datetime import datetime
 
-# Smithsonian museum names and locations
 smithsonian_locations = [
     'national air and space museum',
     'national museum of natural history',        
@@ -60,13 +59,12 @@ def extract_event_date(item_category, description):
     
     return None
 
-    """
-    Cleans up an event description pulled from the Smithsonian Events RSS feed.
-    - Removes leading date/time and all valuues after the description
-    - Removes everything from <b>Sponsor</b> onward
-    - Strips HTML tags
-    - Decodes HTML entities
-    """
+"""
+Cleans up an event description pulled from the Smithsonian Events RSS feed.
+- Removes leading date/time and all valuues after the description
+- Removes everything from <b>Sponsor</b> onward
+- Strips HTML tags
+"""
 def clean_event_description(description):
     parts = re.split(r"<br/><br/>", description)
 
@@ -79,13 +77,10 @@ def clean_event_description(description):
     desc = soup.get_text(" ", strip=True)
     return desc
 
-    """
-    Cleans up an event description pulled from the Smithsonian Events RSS feed.
-    - Removes leading date/time and all valuues after the description
-    - Removes everything from <b>Sponsor</b> onward
-    - Strips HTML tags
-    - Decodes HTML entities
-    """
+"""
+Extracts event date from <category> or <description>.
+Returns a SQL-compatible DATE string: YYYY-MM-DD
+"""
 def get_cost(description):
     pattern = r'<b>Cost</b>:&nbsp;([^<]+)'
     match = re.search(pattern, description)
@@ -107,12 +102,9 @@ def extract_event_times(description):
         return None, None
 
     try:
-        # Just grab the first line before <br/> or newline
         first_line = description.split("<br")[0]
         text = BeautifulSoup(first_line, "html.parser").get_text(" ", strip=True)
 
-        # Regex: capture start/end times with optional am/pm on each
-        # Examples: "10 am – 3 pm", "1 – 2:15 pm", "10:30 am – 11:45 am"
         time_match = re.search(
             r"(\d{1,2}(?::\d{2})?)\s*(am|pm)?\s*[–-]\s*(\d{1,2}(?::\d{2})?)\s*(am|pm)",
             text,
@@ -123,20 +115,14 @@ def extract_event_times(description):
             return None, None
 
         start_raw, start_meridiem, end_raw, end_meridiem = time_match.groups()
-
-        # If start_meridiem missing, inherit from end
         if not start_meridiem:
             start_meridiem = end_meridiem
-
-        # Normalize
         start_time_str = f"{start_raw} {start_meridiem.lower()}"
         end_time_str = f"{end_raw} {end_meridiem.lower()}"
 
-        # Parse into datetime objects
         start_dt = datetime.strptime(start_time_str, "%I:%M %p") if ":" in start_raw else datetime.strptime(start_time_str, "%I %p")
         end_dt = datetime.strptime(end_time_str, "%I:%M %p") if ":" in end_raw else datetime.strptime(end_time_str, "%I %p")
 
-        # Format as SQL-compatible time
         start_sql = start_dt.strftime("%H:%M:%S")
         end_sql = end_dt.strftime("%H:%M:%S")
 
@@ -150,29 +136,29 @@ def extract_event_times(description):
         print(f"Error extracting event times: {e}")
         return None, None
 
+"""
+Extracts event price link from <description>.
+Returns the URL as a string
+"""
 def extract_price_link_from_description(description):
-    """Extract Smithsonian Associates pricing link from RSS description"""
     if not description:
         return ""
     
-    # Look for the specific pricing link pattern in the RSS
     price_link_pattern = r'<a\s+href="(https://smithsonianassociates\.org/ticketing/tickets/[^"]+)"[^>]*>Click here to view prices</a>'
     match = re.search(price_link_pattern, description, re.I)
-    
     if match:
         return match.group(1)
     
-    # Fallback: look for any smithsonianassociates.org/ticketing link
     fallback_pattern = r'href="(https://smithsonianassociates\.org/ticketing/[^"]+)"'
     match = re.search(fallback_pattern, description, re.I)
-    
     if match:
         return match.group(1)
-    
     return ""
-
+"""
+Extracts event price link from <description>.
+Returns the URL as a string
+"""
 def scrape_smithsonian_associates_price(url):
-    """Scrape Smithsonian Associates ticketing page for General Admission price"""
     if not url or 'smithsonianassociates.org/ticketing' not in url:
         return ""
     
@@ -273,7 +259,10 @@ def scrape_smithsonian_associates_price(url):
         return ""
     finally:
         time.sleep(1.5)
-
+"""
+Extracts event price link from <description>.
+Returns the URL as a string
+"""
 def scrape_website_for_price(url):
     """Scrape a website to find price information"""
     if not url or 'eventbrite' in url.lower():
@@ -417,7 +406,10 @@ def scrape_website_for_price(url):
     finally:
         # Add small delay to be respectful
         time.sleep(1.5)
-
+"""
+Extracts event price link from <description>.
+Returns the URL as a string
+"""
 def extract_venue_and_location_from_rss(description):
     """
     Extract only Venue and Event Location from the Smithsonian RSS description HTML.
@@ -453,7 +445,10 @@ def extract_venue_and_location_from_rss(description):
     except Exception as e:
         print(f" Error extracting venue/location: {e}")
         return ""
-
+"""
+Extracts event price link from <description>.
+Returns the URL as a string
+"""
 def is_virtual(text, title=""):
     """Extract location information from Smithsonian event text"""
     if not text:
@@ -496,8 +491,10 @@ def is_virtual(text, title=""):
             return location
     
     return ""
-
-
+"""
+Extracts event price link from <description>.
+Returns the URL as a string
+"""
 def is_kid_friendly(text, title):
     """Determine if event is kid-friendly based on content"""
     if not text and not title:
@@ -554,7 +551,10 @@ def is_kid_friendly(text, title):
             return "Yes"
     
     return ""
-
+"""
+Extracts event price link from <description>.
+Returns the URL as a string
+"""
 def scrape_smithsonian_rss():
     """Scrape the Smithsonian RSS feed for future events"""
     rss_url = "https://www.trumba.com/calendars/smithsonian-events.rss?filter1=_16658_&filterfield1=11153"
@@ -577,11 +577,9 @@ def scrape_smithsonian_rss():
         try:
             soup = BeautifulSoup(response.content, 'xml')
             items = soup.find_all('item')
-            print(f"Parsed with BeautifulSoup XML parser")
         except Exception as e:
             print(f"BeautifulSoup XML parsing failed: {e}")
             try:
-                # Fallback to ElementTree
                 root = ET.fromstring(response.content)
                 items = root.findall('.//item')
                 print(f"Parsed with ElementTree")
@@ -589,25 +587,21 @@ def scrape_smithsonian_rss():
                 print(f"ElementTree parsing failed: {e}")
                 soup = BeautifulSoup(response.content, 'html.parser')
                 items = soup.find_all('item')
-                print(f"Parsed with BeautifulSoup HTML parser")
         
         print(f"Found {len(items)} items in RSS feed")
         
         current_date = datetime.now()
 
-        for i, item in enumerate(items, 10):
+        for i, item in enumerate(items, 1):
             try:
                 print(f"\nProcessing item {i}/{len(items)}...")
-                # Extract basic information - handle both BeautifulSoup and ElementTree
                 if hasattr(item, 'find') and hasattr(item.find('title'), 'get_text'):
-                    # BeautifulSoup object
                     title = item.find('title').get_text() if item.find('title') else ""
                     description = item.find('description').get_text() if item.find('description') else ""
                     link = item.find('link').get_text() if item.find('link') else ""
                     pub_date = item.find('pubDate').get_text() if item.find('pubDate') else ""
                     category = item.find('category').get_text() if item.find('category') else ""
                 else:
-                    # ElementTree object
                     title = item.find('title').text if item.find('title') is not None else ""
                     description = item.find('description').text if item.find('description') is not None else ""
                     link = item.find('link').text if item.find('link') is not None else ""
@@ -615,29 +609,26 @@ def scrape_smithsonian_rss():
                     category = item.find('category').text if item.find('category') is not None else ""
                 
                 print(f"Title: {title[:60]}...")
-                # Store original description for price link extraction
                 original_description = description
                 event_date = extract_event_date(category, original_description)
-                test_time = extract_event_times(original_description)
-                found_price  = get_cost(original_description)
-
-                cleaned_description = clean_event_description(original_description)
-
-                # Clean up HTML from description
-                if description:
-                    desc_soup = BeautifulSoup(description, 'html.parser')
-                    description = desc_soup.get_text(separator=' ', strip=True)
-
-                location = extract_venue_and_location_from_rss(description)
-                
-                
-                # Check if event is in the future
                 if event_date:
                     if event_date < datetime.today():
                         print(f"Skipping past event: {event_date.date()}")
                         continue
                 else:
                     print(f"Could not parse date, including anyway")
+
+                test_time = extract_event_times(original_description)
+                found_price  = get_cost(original_description)
+
+                cleaned_description = clean_event_description(original_description)
+
+                if description:
+                    desc_soup = BeautifulSoup(description, 'html.parser')
+                    description = desc_soup.get_text(separator=' ', strip=True)
+
+                location = extract_venue_and_location_from_rss(description)
+                
                 
                 # Combine title and cleaned description for analysis
                 full_text = f"{title} {cleaned_description}"
@@ -769,28 +760,8 @@ def main():
         save_to_json(workshops)
         
         # Summary statistics
-        print(f"\n📊 Summary:")
+        print(f"\nSummary:")
         print(f"Total events: {len(workshops)}")
-        
-        # Kid-friendly breakdown
-        kid_friendly_count = sum(1 for w in workshops if w['kidfriendly'] == 'Yes')
-        adult_only_count = sum(1 for w in workshops if w['kidfriendly'] == 'No')
-        unknown_count = len(workshops) - kid_friendly_count - adult_only_count
-        
-        print(f"Kid-friendly: {kid_friendly_count}")
-        print(f"Adult-only: {adult_only_count}")
-        print(f"Unknown: {unknown_count}")
-        
-        # Other stats
-        with_location = sum(1 for w in workshops if w['location'])
-        print(f"With location info: {with_location}")
-        
-        with_datetime = sum(1 for w in workshops if w['date'])
-        with_datetime = sum(1 for w in workshops if w['time'])
-        print(f"With date/time info: {with_datetime}")
-        
-        free_events = sum(1 for w in workshops if 'free' in w['price'].lower())
-        print(f"Free events: {free_events}")
         
     else:
         print("\n❌ No workshops found.")
