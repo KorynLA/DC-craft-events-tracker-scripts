@@ -8,225 +8,100 @@ import time
 from urllib.parse import urljoin, urlparse
 from datetime import datetime
 
+# Smithsonian museum names and locations
+smithsonian_locations = [
+    'national air and space museum',
+    'national museum of natural history',        
+    'national museum of american history',
+    'hirshhorn museum',
+    'arts and industries building',
+    'freer and sackler galleries',
+    'national portrait gallery',
+    'smithsonian american art museum',
+    'anacostia community museum',
+    'national postal museum',
+    'renwick gallery',
+    'cooper hewitt',
+    'national zoo',
+    'national museum of african american history',
+    'national museum of the american indian',
+    'smithsonian castle',
+    'enid a haupt garden',
+    's dillon ripley center'
+]
+
+"""
+Extracts event date from <category> or <description>.
+Returns a SQL-compatible DATE string: YYYY-MM-DD
+"""
 def extract_event_date(item_category, description):
-    """
-    Extracts event date from <category> (preferred) or <description>.
-    Returns a SQL-compatible DATE string: YYYY-MM-DD
-    """
     try:
-        # 1. First try category (format: YYYY/MM/DD (Day))
         if item_category:
             match = re.search(r"(\d{4})/(\d{2})/(\d{2})", item_category)
             if match:
                 year, month, day = match.groups()
-                return f"{year}-{month}-{day}"  # SQL DATE format
+                return datetime(int(year), int(month), int(day)) 
 
-        # 2. Fallback: look inside description (e.g. "Thursday, August 28, 2025")
         if description:
             first_line = description.split("<br")[0]
             text = BeautifulSoup(first_line, "html.parser").get_text(" ", strip=True)
 
-            # Find Month Day, Year
             date_match = re.search(
                 r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}",
                 text
             )
             if date_match:
                 date_str = date_match.group(0)
-                dt = datetime.strptime(date_str, "%B %d, %Y")
-                return dt.strftime("%Y-%m-%d")
+                dt = datetime(date_str, "%B %d, %Y")
+                return dt
 
     except Exception as e:
-        print(f"⚠️ Error extracting date: {e}")
+        print(f"Error extracting date: {e}")
     
     return None
 
-def parse_date_from_text(date_text):
-    """Parse various date formats and return datetime object"""
-    if not date_text:
-        return None
-    
-    try:
-        # First try using dateutil parser which handles many formats
-        return date_parser.parse(date_text, fuzzy=True)
-    except:
-        pass
-    
-    # Fallback to manual patterns
-    date_patterns = [
-        r'(\w+\s+\d{1,2},?\s+\d{4})',  # January 15, 2024
-        r'(\d{1,2}/\d{1,2}/\d{2,4})',  # 1/15/24 or 1/15/2024
-        r'(\d{1,2}-\d{1,2}-\d{2,4})',  # 1-15-24 or 1-15-2024
-        r'(\d{4}-\d{1,2}-\d{1,2})',    # 2024-01-15 (ISO format)
-    ]
-    
-    for pattern in date_patterns:
-        match = re.search(pattern, date_text)
-        if match:
-            date_str = match.group(1)
-            
-            # Try different datetime parsing formats
-            formats = [
-                '%B %d, %Y',   # January 15, 2024
-                '%b %d, %Y',   # Jan 15, 2024
-                '%m/%d/%Y',    # 1/15/2024
-                '%m/%d/%y',    # 1/15/24
-                '%m-%d-%Y',    # 1-15-2024
-                '%m-%d-%y',    # 1-15-24
-                '%Y-%m-%d',    # 2024-01-15
-            ]
-            
-            for fmt in formats:
-                try:
-                    return datetime.strptime(date_str, fmt)
-                except ValueError:
-                    continue
-    
+    """
+    Cleans up an event description pulled from the Smithsonian Events RSS feed.
+    - Removes leading date/time and all valuues after the description
+    - Removes everything from <b>Sponsor</b> onward
+    - Strips HTML tags
+    - Decodes HTML entities
+    """
+def clean_event_description(description):
+    parts = re.split(r"<br/><br/>", description)
+
+    if len(parts) >= 2:
+        desc = parts[1]
+    else:
+        desc = parts[0]
+
+    soup = BeautifulSoup(desc, "html.parser")
+    desc = soup.get_text(" ", strip=True)
+    return desc
+
+    """
+    Cleans up an event description pulled from the Smithsonian Events RSS feed.
+    - Removes leading date/time and all valuues after the description
+    - Removes everything from <b>Sponsor</b> onward
+    - Strips HTML tags
+    - Decodes HTML entities
+    """
+def get_cost(description):
+    pattern = r'<b>Cost</b>:&nbsp;([^<]+)'
+    match = re.search(pattern, description)
+    if match:
+        cost_split = re.split(r'[|;,./]', match[0])
+        if len(cost_split)> 2:
+            cost = cost_split[2]
+            return cost
+
     return None
 
-def clean_description_remove_sponsor(description):
-    """Clean description by removing everything after and including 'sponsor'"""
-    if not description:
-        return ""
-    
-    # Convert to string if it's not already
-    description = str(description)
-    
-    # Find the position of "sponsor" (case insensitive)
-    sponsor_match = re.search(r'\bsponsor\b', description, re.IGNORECASE)
-    
-    if sponsor_match:
-        # Cut off everything from "sponsor" onwards
-        description = description[:sponsor_match.start()].strip()
-        
-        # Clean up any trailing punctuation or whitespace
-        description = re.sub(r'[.\s]+$', '', description).strip()
-    
-    return description
 
-def extract_datetime_from_description(description):
-    """Extract date/time from description and return cleaned description + datetime"""
-    if not description:
-        return "", ""
-    
-    # First, remove sponsor information
-    description = clean_description_remove_sponsor(description)
-    
-    # Enhanced patterns for date/time extraction - more comprehensive
-    datetime_patterns = [
-        # "Saturday, January 15, 2025, 10 am – 3 pm" or similar
-        r'(\w+,?\s+\w+\s+\d{1,2},?\s+\d{4}),?\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s*[–\-]\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm))',
-        # "Saturday, , 10 am – 3 pm" (malformed date)
-        r'(\w+),?\s*,\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s*[–\-]\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm))',
-        # "Friday, July 26, 2025 at 2:00 PM"
-        r'(\w+,?\s+\w+\s+\d{1,2},?\s+\d{4})\s+at\s+(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm))',
-        # "July 26, 2025 2:00 PM - 4:00 PM"
-        r'(\w+\s+\d{1,2},?\s+\d{4})\s+(\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm))\s*[-–]\s*(\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm))',
-        # "July 26, 2025 from 2:00 PM to 4:00 PM"
-        r'(\w+\s+\d{1,2},?\s+\d{4})\s+from\s+(\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm))\s+to\s+(\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm))',
-        # "2025-07-26T14:00:00"
-        r'(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})',
-        # "Mon, Jul 26, 2025, 2:00 PM"
-        r'(\w+,?\s+\w+\s+\d{1,2},?\s+\d{4}),?\s+(\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm))',
-        # Just date: "July 26, 2025"
-        r'(\w+\s+\d{1,2},?\s+\d{4})',
-        # "July 26 at 2:00 PM" (assuming current year)
-        r'(\w+\s+\d{1,2})\s+at\s+(\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm))',
-        # Time ranges without explicit date "10 am – 3 pm"
-        r'(\d{1,2}(?::\d{2})?\s*(?:am|pm))\s*[–\-]\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm))',
-    ]
-    
-    extracted_datetime = ""
-    cleaned_description = description
-    
-    for pattern in datetime_patterns:
-        match = re.search(pattern, description, re.I)
-        if match:
-            full_match = match.group(0)
-            groups = match.groups()
-            
-            # Process the match based on pattern type
-            if 'T' in full_match:  # ISO format
-                try:
-                    dt = datetime.fromisoformat(groups[0])
-                    extracted_datetime = dt.strftime('%Y-%m-%d %I:%M %p')
-                except:
-                    extracted_datetime = full_match
-            elif len(groups) == 3 and any(word in groups[0].lower() for word in ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']):
-                # Day, start_time, end_time format
-                day_part = groups[0]
-                start_time = groups[1]
-                end_time = groups[2]
-                
-                # Handle malformed dates like "Saturday, ,"
-                if ', ,' in day_part:
-                    # Can't determine exact date, just use time range
-                    extracted_datetime = f"{start_time} - {end_time}"
-                else:
-                    try:
-                        # Try to parse the date part
-                        if len(day_part.split()) >= 3:  # Has month and day
-                            date_obj = date_parser.parse(day_part, fuzzy=True)
-                            extracted_datetime = f"{date_obj.strftime('%Y-%m-%d')} {start_time} - {end_time}"
-                        else:
-                            extracted_datetime = f"{start_time} - {end_time}"
-                    except:
-                        extracted_datetime = f"{start_time} - {end_time}"
-            elif len(groups) == 2 and ('am' in groups[0].lower() or 'pm' in groups[0].lower()):
-                # Time range only "10 am – 3 pm"
-                start_time = groups[0]
-                end_time = groups[1]
-                extracted_datetime = f"{start_time} - {end_time}"
-            elif len(groups) >= 2:
-                # Date and time format
-                date_part = groups[0]
-                time_part = groups[1]
-                
-                try:
-                    # Handle year-less dates
-                    if len(date_part.split()) == 2:  # "July 26"
-                        current_year = datetime.now().year
-                        date_part = f"{date_part}, {current_year}"
-                    
-                    date_obj = date_parser.parse(date_part, fuzzy=True)
-                    if len(groups) == 3:  # Time range
-                        end_time = groups[2]
-                        extracted_datetime = f"{date_obj.strftime('%Y-%m-%d')} {time_part} - {end_time}"
-                    else:
-                        extracted_datetime = f"{date_obj.strftime('%Y-%m-%d')} {time_part}"
-                except:
-                    if len(groups) == 3:
-                        extracted_datetime = f"{time_part} - {groups[2]}"
-                    else:
-                        extracted_datetime = time_part
-            else:
-                # Just date
-                try:
-                    date_obj = date_parser.parse(groups[0], fuzzy=True)
-                    extracted_datetime = date_obj.strftime('%Y-%m-%d')
-                except:
-                    extracted_datetime = groups[0]
-            
-            # Remove the datetime from description and clean up
-            cleaned_description = description.replace(full_match, '').strip()
-            
-            # Additional cleanup for malformed patterns
-            cleaned_description = re.sub(r'\b\w+,\s*,\s*', '', cleaned_description)  # Remove "Saturday, ," patterns
-            cleaned_description = re.sub(r'\s+', ' ', cleaned_description)  # Multiple spaces
-            cleaned_description = re.sub(r'^[,.\-\s]+|[,.\-\s]+$', '', cleaned_description)  # Leading/trailing punctuation
-            cleaned_description = cleaned_description.strip()
-            
-            break
-    
-    # Make sure the cleaned description doesn't have sponsor info
-    cleaned_description = clean_description_remove_sponsor(cleaned_description)
-    
-    return cleaned_description, extracted_datetime
-
-import re
-from datetime import datetime
-from bs4 import BeautifulSoup
-
+"""
+Extracts event time from <description>.
+Returns a tuple with the SQL-compatible start time and end time
+"""
 def extract_event_times(description):
     if not description:
         return None, None
@@ -268,12 +143,11 @@ def extract_event_times(description):
         return start_sql, end_sql
 
     except Exception as e:
-        print(f"⚠️ Error extracting event times: {e}")
+        print(f"Error extracting event times: {e}")
         return None, None
 
-
     except Exception as e:
-        print(f"⚠️ Error extracting event times: {e}")
+        print(f"Error extracting event times: {e}")
         return None, None
 
 def extract_price_link_from_description(description):
@@ -303,7 +177,7 @@ def scrape_smithsonian_associates_price(url):
         return ""
     
     try:
-        print(f"    🎫 Scraping Smithsonian Associates price: {url[:60]}...")
+        print(f"Scraping Smithsonian Associates price: {url[:60]}...")
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -410,7 +284,7 @@ def scrape_website_for_price(url):
         return scrape_smithsonian_associates_price(url)
     
     try:
-        print(f"    🔍 Checking website for price: {url[:60]}...")
+        print(f"Checking website for price: {url[:60]}...")
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -563,7 +437,6 @@ def extract_venue_and_location_from_rss(description):
         loc_match = re.search(r"Event Location\s*:\s*([^\n\r]+?)(?=\s*(Venue|Cost|Categories|$))", text, re.I)
 
         venue = venue_match.group(1).strip() if venue_match else ""
-        print(venue)
         event_location = loc_match.group(1).strip() if loc_match else ""
         print(event_location)
         if sponsor and "Smithsonian Associates" not in sponsor:
@@ -578,10 +451,10 @@ def extract_venue_and_location_from_rss(description):
             return ""
 
     except Exception as e:
-        print(f"    ⚠️ Error extracting venue/location: {e}")
+        print(f" Error extracting venue/location: {e}")
         return ""
 
-def extract_smithsonian_location(text, title=""):
+def is_virtual(text, title=""):
     """Extract location information from Smithsonian event text"""
     if not text:
         return ""
@@ -598,28 +471,6 @@ def extract_smithsonian_location(text, title=""):
     for indicator in virtual_indicators:
         if indicator in combined_text:
             return "Virtual"
-    
-    # Smithsonian museum names and locations
-    smithsonian_locations = [
-        'national air and space museum',
-        'national museum of natural history',
-        'national museum of american history',
-        'hirshhorn museum',
-        'arts and industries building',
-        'freer and sackler galleries',
-        'national portrait gallery',
-        'smithsonian american art museum',
-        'anacostia community museum',
-        'national postal museum',
-        'renwick gallery',
-        'cooper hewitt',
-        'national zoo',
-        'national museum of african american history',
-        'national museum of the american indian',
-        'smithsonian castle',
-        'enid a haupt garden',
-        's dillon ripley center'
-    ]
     
     # Check for specific Smithsonian locations
     for location in smithsonian_locations:
@@ -646,53 +497,11 @@ def extract_smithsonian_location(text, title=""):
     
     return ""
 
-def extract_price_from_text(text):
-    """Extract price information from text"""
-    if not text:
-        return ""
-    
-    # Clean description to remove sponsor info
-    text = clean_description_remove_sponsor(text)
-    
-    # Check for free indicators
-    free_patterns = [
-        r'\b(free|no cost|no charge|complimentary|admission free)\b',
-        r'\b(free admission|free entry|no admission fee)\b'
-    ]
-    
-    for pattern in free_patterns:
-        if re.search(pattern, text, re.I):
-            return "Free"
-    
-    # Look for price patterns
-    price_patterns = [
-        r'\$(\d+(?:\.\d{2})?)',  # $15.00 or $15
-        r'(\d+(?:\.\d{2})?)\s*dollars?',  # 15 dollars
-        r'admission:?\s*\$?(\d+(?:\.\d{2})?)',  # admission: $15
-        r'cost:?\s*\$?(\d+(?:\.\d{2})?)',  # cost: $15
-        r'price:?\s*\$?(\d+(?:\.\d{2})?)',  # price: $15
-        r'fee:?\s*\$?(\d+(?:\.\d{2})?)'  # fee: $15
-    ]
-    
-    for pattern in price_patterns:
-        match = re.search(pattern, text, re.I)
-        if match:
-            price = match.group(1)
-            return f"${price}"
-    
-    # Check for "included with admission" which usually means museum admission required
-    if re.search(r'included\s+with\s+(?:museum\s+)?admission', text, re.I):
-        return "Included with museum admission"
-    
-    return ""
 
-def determine_kid_friendly(text, title):
+def is_kid_friendly(text, title):
     """Determine if event is kid-friendly based on content"""
     if not text and not title:
         return ""
-    
-    # Clean text to remove sponsor info
-    text = clean_description_remove_sponsor(text)
     
     combined_text = f"{title} {text}".lower()
     
@@ -754,7 +563,6 @@ def scrape_smithsonian_rss():
     
     try:
         print(f"Fetching Smithsonian RSS feed...")
-        print(f"URL: {rss_url}")
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -765,10 +573,8 @@ def scrape_smithsonian_rss():
         response.raise_for_status()
         
         print(f"RSS feed fetched successfully: {len(response.content)} bytes")
-        
-        # Parse the RSS XML
+
         try:
-            # Try BeautifulSoup with XML parser first (better for malformed XML)
             soup = BeautifulSoup(response.content, 'xml')
             items = soup.find_all('item')
             print(f"Parsed with BeautifulSoup XML parser")
@@ -781,7 +587,6 @@ def scrape_smithsonian_rss():
                 print(f"Parsed with ElementTree")
             except ET.ParseError as e:
                 print(f"ElementTree parsing failed: {e}")
-                # Last resort: try HTML parser
                 soup = BeautifulSoup(response.content, 'html.parser')
                 items = soup.find_all('item')
                 print(f"Parsed with BeautifulSoup HTML parser")
@@ -789,32 +594,18 @@ def scrape_smithsonian_rss():
         print(f"Found {len(items)} items in RSS feed")
         
         current_date = datetime.now()
-        
-        for i, item in enumerate(items, 1):
+
+        for i, item in enumerate(items, 10):
             try:
                 print(f"\nProcessing item {i}/{len(items)}...")
-                
                 # Extract basic information - handle both BeautifulSoup and ElementTree
                 if hasattr(item, 'find') and hasattr(item.find('title'), 'get_text'):
                     # BeautifulSoup object
                     title = item.find('title').get_text() if item.find('title') else ""
                     description = item.find('description').get_text() if item.find('description') else ""
-                    print(description)
                     link = item.find('link').get_text() if item.find('link') else ""
                     pub_date = item.find('pubDate').get_text() if item.find('pubDate') else ""
                     category = item.find('category').get_text() if item.find('category') else ""
-                    
-                    # Try to get Trumba-specific fields
-                    event_start = ""
-                    event_end = ""
-                    trumba_fields = item.find_all(attrs={'name': True})
-                    for field in trumba_fields:
-                        field_name = field.get('name', '').lower()
-                        if 'start' in field_name or 'begin' in field_name:
-                            event_start = field.get_text()
-                        elif 'end' in field_name:
-                            event_end = field.get_text()
-                    
                 else:
                     # ElementTree object
                     title = item.find('title').text if item.find('title') is not None else ""
@@ -822,70 +613,62 @@ def scrape_smithsonian_rss():
                     link = item.find('link').text if item.find('link') is not None else ""
                     pub_date = item.find('pubDate').text if item.find('pubDate') is not None else ""
                     category = item.find('category').text if item.find('category') is not None else ""
-                    event_start = ""
-                    event_end = ""
                 
-                print(f"  Title: {title[:60]}...")
-                
+                print(f"Title: {title[:60]}...")
                 # Store original description for price link extraction
                 original_description = description
-                test_date = extract_event_date(category, original_description)
+                event_date = extract_event_date(category, original_description)
                 test_time = extract_event_times(original_description)
+                found_price  = get_cost(original_description)
+
+                cleaned_description = clean_event_description(original_description)
+
                 # Clean up HTML from description
                 if description:
                     desc_soup = BeautifulSoup(description, 'html.parser')
                     description = desc_soup.get_text(separator=' ', strip=True)
-                
-                # Extract date/time from description and clean it (this now includes sponsor removal)
-                cleaned_description, extracted_datetime = extract_datetime_from_description(description)
-                print("HEREEEE "+ extract_venue_and_location_from_rss(description))
-                                # Extract other information
+
                 location = extract_venue_and_location_from_rss(description)
                 
-                # Parse event date for filtering
-                event_date = parse_date_from_text(extracted_datetime)
                 
                 # Check if event is in the future
                 if event_date:
-                    if event_date.date() < current_date.date():
-                        print(f"  ❌ Skipping past event: {event_date.date()}")
+                    if event_date < datetime.today():
+                        print(f"Skipping past event: {event_date.date()}")
                         continue
-                    else:
-                        print(f"  ✅ Future event: {event_date.date()}")
                 else:
-                    print(f"  ⚠️  Could not parse date, including anyway")
+                    print(f"Could not parse date, including anyway")
                 
                 # Combine title and cleaned description for analysis
                 full_text = f"{title} {cleaned_description}"
-                
-                # First, try to extract Smithsonian Associates pricing link from RSS description
-                pricing_link = extract_price_link_from_description(original_description)
-                
-                # Extract price from text first
-                price = extract_price_from_text(full_text)
-                
-                # If we found a pricing link, scrape it for actual price
-                if pricing_link:
-                    print(f"  🎫 Found Smithsonian Associates pricing link")
-                    scraped_price = scrape_smithsonian_associates_price(pricing_link)
-                    if scraped_price:
-                        price = scraped_price
-                    elif not price:
-                        price = "Check website"
-                # If price is still empty or says "check website", try scraping the main event website
-                elif not price or "check website" in price.lower():
-                    event_url = link.strip() if link else ""
-                    if event_url and 'eventbrite' not in event_url.lower():
-                        print(f"  🌐 Attempting to scrape price from: {event_url[:50]}...")
-                        scraped_price = scrape_website_for_price(event_url)
+                price = None
+                if found_price is not None:
+                    price = found_price
+                if not price:
+                    # First, try to extract Smithsonian Associates pricing link from RSS description
+                    pricing_link = extract_price_link_from_description(original_description)
+                    # If we found a pricing link, scrape it for actual price
+                    if pricing_link:
+                        print(f"  🎫 Found Smithsonian Associates pricing link")
+                        scraped_price = scrape_smithsonian_associates_price(pricing_link)
                         if scraped_price:
                             price = scraped_price
                         elif not price:
                             price = "Check website"
-                    elif not price:
-                        price = "Check website"
+                    # If price is still empty or says "check website", try scraping the main event website
+                    elif not price or "check website" in price.lower():
+                        event_url = link.strip() if link else ""
+                        if event_url and 'eventbrite' not in event_url.lower():
+                            print(f"  🌐 Attempting to scrape price from: {event_url[:50]}...")
+                            scraped_price = scrape_website_for_price(event_url)
+                            if scraped_price:
+                                price = scraped_price
+                            elif not price:
+                                price = "Check website"
+                        elif not price:
+                            price = "Check website"
                 
-                kid_friendly = determine_kid_friendly(full_text, title)
+                kid_friendly = is_kid_friendly(full_text, title)
                 
                 # Use link from RSS or default to RSS URL
                 event_url = link.strip() if link else rss_url
@@ -896,30 +679,29 @@ def scrape_smithsonian_rss():
                     'scraped_at': scraped_at,
                     'title': title.strip(),
                     'description': cleaned_description.strip() if cleaned_description else title.strip(),
-                    'date': test_date,
+                    'date': event_date.strftime("%Y-%m-%d"),
                     'time': test_time,
                     'price': price,
                     'location': location,
                     'kidfriendly': kid_friendly
                 }
                 
-                # Only add if we have meaningful data
                 if title and len(title.strip()) > 5:
                     workshops.append(workshop_data)
-                    print(f"  ✅ Added workshop: {title[:50]}...")
+                    print(f"Added workshop: {title[:50]}...")
                 else:
-                    print(f"  ❌ Skipped item with insufficient data")
+                    print(f"Skipped item with insufficient data")
                 
             except Exception as e:
-                print(f"  ❌ Error processing item {i}: {e}")
+                print(f"Error processing item {i}: {e}")
                 continue
         
-        print(f"\n🎉 Extracted {len(workshops)} future workshops from Smithsonian RSS")
+        print(f"Extracted {len(workshops)} future workshops from Smithsonian RSS")
         
     except requests.exceptions.RequestException as e:
-        print(f"❌ Error fetching RSS feed: {e}")
+        print(f"Error fetching RSS feed: {e}")
     except Exception as e:
-        print(f"❌ Error parsing RSS feed: {e}")
+        print(f"Error parsing RSS feed: {e}")
         import traceback
         traceback.print_exc()
     
@@ -935,9 +717,9 @@ def format_workshop_data(workshop):
         workshop["location"], 
         workshop["date"],
         workshop["time"],
-        "Smithsonian",  # business
+        "Smithsonian",
         "YES",
-        "scraper"  # submittedBy
+        "scraper"
     )
 
 def save_to_json(workshops, filename="smithsonian_workshops.json"):
@@ -972,7 +754,7 @@ def save_to_json(workshops, filename="smithsonian_workshops.json"):
         print(f"\n💾 Saved {len(formatted_workshops)} workshops to {filename}")
         return True
     except Exception as e:
-        print(f"\n❌ Error saving to JSON: {e}")
+        print(f"Error saving to JSON: {e}")
         return False
 
 def main():
@@ -981,7 +763,7 @@ def main():
     workshops = scrape_smithsonian_rss()
     
     if workshops:
-        print(f"\n✅ Found {len(workshops)} future workshops:")
+        print(f"Found {len(workshops)} future workshops:")
         
         # Save to JSON file
         save_to_json(workshops)
