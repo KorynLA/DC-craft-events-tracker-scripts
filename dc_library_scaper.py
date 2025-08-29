@@ -34,19 +34,16 @@ library_location_codes = {
     "Southwest Neighborhood Library": "2943",
     "Takoma Park Neighborhood Library": "2326",
     "Tenley-Friendship Neighborhood Library": "2327",
-    "Virtual Program": "3098",
+    "Virtual": "3098",
     "West End Neighborhood Library": "2328",
     "Woodridge Neighborhood Library": "2329",
 }
 
-def encode_rss_filter(location_id, kids=False, types=None, tags=None, term="", days=1):
+def encode_rss_filter(location_id, kids=False, types=None, term="", days=1):
     if kids:
         ages = ["Birth - 5", "5 - 12 Years Old", "13 - 19 Years Old (Teens)"]
     else:
         ages = ["Adults", "Seniors"]
-
-    if tags is None:
-        tags = []
     
     filter_data = {
         "feedType": "rss",
@@ -239,6 +236,9 @@ def scrape_dc_library_rss(kid_friendly = False, title_set = None):
                         if event_date < current_date.date():
                             print(f"❌ Skipping past event: {event_date}")
                             continue
+                    else:
+                        print(f"❌ Skipping event without date")
+                        continue
                     
                     workshop_data = {
                         'url': link.strip() if link else rss_url,
@@ -249,7 +249,9 @@ def scrape_dc_library_rss(kid_friendly = False, title_set = None):
                         'time': date_time[1].strftime("%H:%M:%S") if date_time[1] else None,
                         'price': 0,
                         'location': location,
-                        'kidfriendly': kid_friendly
+                        'kidfriendly': kid_friendly,
+                        'submittedBy': "scraper_dc_library",
+                        'business': 'DC Libaries'
                     }
                     workshops.append(workshop_data)
                     
