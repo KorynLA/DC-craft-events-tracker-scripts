@@ -270,8 +270,7 @@ def scrape_dc_library_rss(kid_friendly = False, title_set = None):
             log.debug(f"{e}")
         except Exception as e:
             log.error(f"Error parsing RSS feed: {rss_url}")
-            log.debug({e})
-            logger.debug("Full traceback:", exc_info=True)
+            log.debug("Full traceback:", exc_info=True)
         
     return workshops
 
